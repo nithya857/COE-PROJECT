@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory Balancing Recommender | Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">⚡</div>
+                <h2>Balancing AI</h2>
+            </div>
+            <nav class="nav-menu">
+                <a href="/" class="nav-item active">
+                    <span class="icon">📊</span> Dashboard
+                </a>
+                <a href="/recommendations" class="nav-item">
+                    <span class="icon">🔀</span> Recommendations
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <span class="badge badge-primary">45% Prototype</span>
+                <p>CoE Review 1 Demo</p>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="header">
+                <div>
+                    <h1>Inventory Balancing Recommender</h1>
+                    <p class="subtitle">Multi-Location Balancing Engine for Variable Pack Sizes</p>
+                </div>
+                <div class="header-actions">
+                    <button class="btn btn-outline" onclick="loadDashboardData()">🔄 Refresh Data</button>
+                    <a href="/recommendations" class="btn btn-primary">View Recommendations →</a>
+                </div>
+            </header>
+
+            <!-- Warnings Container -->
+            <div id="warnings-container"></div>
+
+            <!-- Summary Cards Row -->
+            <section class="metrics-grid">
+                <div class="card metric-card">
+                    <div class="metric-icon blue">📦</div>
+                    <div class="metric-info">
+                        <span class="metric-label">Total Components</span>
+                        <h3 id="stat-components">--</h3>
+                    </div>
+                </div>
+                <div class="card metric-card">
+                    <div class="metric-icon purple">🏬</div>
+                    <div class="metric-info">
+                        <span class="metric-label">Total Locations</span>
+                        <h3 id="stat-locations">--</h3>
+                    </div>
+                </div>
+                <div class="card metric-card">
+                    <div class="metric-icon red">⚠️</div>
+                    <div class="metric-info">
+                        <span class="metric-label">Active Shortages</span>
+                        <h3 id="stat-shortages">--</h3>
+                    </div>
+                </div>
+                <div class="card metric-card">
+                    <div class="metric-icon cyan">🔀</div>
+                    <div class="metric-info">
+                        <span class="metric-label">Transfer Recommendations</span>
+                        <h3 id="stat-transfers">--</h3>
+                    </div>
+                </div>
+                <div class="card metric-card">
+                    <div class="metric-icon green">💰</div>
+                    <div class="metric-info">
+                        <span class="metric-label">Purchase Cost Avoided</span>
+                        <h3 id="stat-purchase-avoided">₹--</h3>
+                    </div>
+                </div>
+                <div class="card metric-card">
+                    <div class="metric-icon emerald">🛡️</div>
+                    <div class="metric-info">
+                        <span class="metric-label">Shortage Cases Avoided</span>
+                        <h3 id="stat-shortages-avoided">--</h3>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Charts Section (ONLY 3 Charts) -->
+            <section class="charts-grid">
+                <!-- Chart 1: Baseline Purchase vs Recommended Purchase -->
+                <div class="card chart-card">
+                    <div class="card-header">
+                        <h4>Baseline Purchase vs Recommended Purchase</h4>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="chartCostComparison"></canvas>
+                    </div>
+                </div>
+
+                <!-- Chart 2: Shortages Avoided -->
+                <div class="card chart-card">
+                    <div class="card-header">
+                        <h4>Shortages Avoided via Network Transfers</h4>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="chartShortagesAvoided"></canvas>
+                    </div>
+                </div>
+
+                <!-- Chart 3: Transfer Cost vs Purchase Cost -->
+                <div class="card chart-card">
+                    <div class="card-header">
+                        <h4>Transfer Cost vs Supplier Purchase Cost</h4>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="chartCostBreakdown"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Shortage Table Section -->
+            <section class="card table-card">
+                <div class="card-header">
+                    <h4>Active Shortage Monitor</h4>
+                    <span class="badge badge-warning" id="shortage-count-badge">0 Shortages</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Component</th>
+                                <th>Location</th>
+                                <th>Current Stock</th>
+                                <th>7-Day Forecast</th>
+                                <th>Projected Stock</th>
+                                <th>Shortage</th>
+                                <th>Urgency</th>
+                                <th>Confidence</th>
+                            </tr>
+                        </thead>
+                        <tbody id="shortage-table-body">
+                            <tr>
+                                <td colspan="8" class="text-center">Loading shortage records...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            loadDashboardData();
+        });
+    </script>
+</body>
+</html>

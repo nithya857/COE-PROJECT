@@ -1,0 +1,11 @@
+component_id,component_name,pack_size,unit_cost,emission_factor,criticality
+C001,Motor Bearing,50,120,0.5,HIGH
+C002,Hydraulic Cylinder,25,450,1.2,HIGH
+C003,Stepper Motor,50,200,0.8,MEDIUM
+C004,Control Valve,100,85,0.3,LOW
+C005,Circuit Board,100,310,0.4,CRITICAL
+C006,Cooling Fan,200,45,0.2,LOW
+C007,Pressure Sensor,25,160,0.3,CRITICAL
+C008,Power Inverter,50,520,1.5,HIGH
+C009,Cable Assembly,200,30,0.1,LOW
+C010,Gearbox Seal,100,75,0.2,MEDIUM

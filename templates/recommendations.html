@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory Balancing Recommender | Recommendations</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">⚡</div>
+                <h2>Balancing AI</h2>
+            </div>
+            <nav class="nav-menu">
+                <a href="/" class="nav-item">
+                    <span class="icon">📊</span> Dashboard
+                </a>
+                <a href="/recommendations" class="nav-item active">
+                    <span class="icon">🔀</span> Recommendations
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <span class="badge badge-primary">45% Prototype</span>
+                <p>CoE Review 1 Demo</p>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="header">
+                <div>
+                    <h1>Recommendations Center</h1>
+                    <p class="subtitle">Explainable inter-location transfers & supplier purchase decisions</p>
+                </div>
+                <div class="header-actions">
+                    <button class="btn btn-outline" onclick="loadRecommendationsData()">🔄 Refresh Recommendations</button>
+                </div>
+            </header>
+
+            <!-- Recommendation Filter & Table -->
+            <section class="card table-card">
+                <div class="card-header flex-between">
+                    <div class="flex-gap-sm">
+                        <button class="filter-btn active" onclick="filterRecommendations('ALL', this)">All</button>
+                        <button class="filter-btn" onclick="filterRecommendations('TRANSFER', this)">Transfers</button>
+                        <button class="filter-btn" onclick="filterRecommendations('PURCHASE', this)">Purchases</button>
+                        <button class="filter-btn" onclick="filterRecommendations('PENDING_APPROVAL', this)">Pending Approval</button>
+                    </div>
+                    <span class="badge badge-info" id="rec-count-badge">0 Items</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Component</th>
+                                <th>Source → Destination</th>
+                                <th>Quantity</th>
+                                <th>Packs (Size)</th>
+                                <th>Lead Time</th>
+                                <th>Transfer Cost</th>
+                                <th>Score</th>
+                                <th>Confidence</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recommendation-table-body">
+                            <tr>
+                                <td colspan="11" class="text-center">Loading recommendations...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            loadRecommendationsData();
+        });
+    </script>
+</body>
+</html>

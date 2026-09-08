@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recommendation Details | Balancing AI</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">⚡</div>
+                <h2>Balancing AI</h2>
+            </div>
+            <nav class="nav-menu">
+                <a href="/" class="nav-item">
+                    <span class="icon">📊</span> Dashboard
+                </a>
+                <a href="/recommendations" class="nav-item active">
+                    <span class="icon">🔀</span> Recommendations
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <span class="badge badge-primary">45% Prototype</span>
+                <p>CoE Review 1 Demo</p>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <div class="top-nav">
+                <a href="/recommendations" class="back-link">← Back to Recommendations</a>
+            </div>
+
+            <div id="details-container">
+                <div class="card text-center p-xl">
+                    <p>Loading recommendation details...</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Override Reason Modal -->
+    <div id="override-modal" class="modal-overlay hidden">
+        <div class="modal-content card">
+            <div class="modal-header">
+                <h3>Manual Planner Override</h3>
+                <button class="close-btn" onclick="closeOverrideModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <p>Please enter the business operational reason for overriding this recommendation:</p>
+                <textarea id="override-reason-text" class="form-textarea" placeholder="e.g. Supplier lead time reduced, emergency local store buffer available, or priority shift..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeOverrideModal()">Cancel</button>
+                <button class="btn btn-warning" onclick="submitOverrideReason()">Submit Override</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script>
+        const currentRecId = "{{ rec_id }}";
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSingleRecommendationDetails(currentRecId);
+        });
+    </script>
+</body>
+</html>
