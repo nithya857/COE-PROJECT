@@ -1,6 +1,6 @@
 # Multi-Location Balancing Recommender for a Manufacturer Managing Components Supplied in Variable Pack Sizes
 
-> **CoE Growth Project - 45% Review 1 Prototype**
+> **CoE Growth Project - Review 2 Release Milestone**
 
 ---
 
@@ -9,39 +9,36 @@ Manufacturing networks operating multiple plants or regional warehouses frequent
 
 ---
 
-## 🎯 Project Objective
-To develop a simple, explainable, rule-based decision-support system that:
-1. Detects localized component shortages across manufacturing facilities.
-2. Identifies facilities with usable surplus stock above safety thresholds.
-3. Enforces integer variable pack-size transfer constraints.
-4. Evaluates inter-location transport lead times against service urgency deadlines.
-5. Quantifies baseline vs recommender cost savings, purchase avoidance, and shortage resolution metrics.
-6. Provides an interactive web dashboard with human approval and override audit logging.
+## 🚀 Key Review 2 Engineering Enhancements
+1. **Relational Schema & Transactional Integrity (SQLite + SQLAlchemy 2.0 ORM)**: Transitioned storage from flat CSV files to an embedded SQLite database (`data/inventory.db`) with thread-safe scoped sessions and ACID transactional stock allocation functions (`execute_transfer_transaction`) to prevent race conditions during human approval/override.
+2. **Dynamic Distance- & Transport-Weighted Carbon Emissions Model**: Expanded carbon footprint modeling from static factors to dynamic route distance (km), vehicle mode (`EV_TRUCK`, `DIESEL_TRUCK`, `EXPRESS_AIR`), and component weight (kg) calculations ($\text{CO}_2 \text{ kg} = \text{distance} \times \text{weight} \times \text{emission rate}$). Integrated sustainability into decision scoring ($0.4\times\text{Service} + 0.3\times\text{Cost} + 0.15\times\text{Emissions} + 0.15\times\text{Reliability}$).
+3. **Property-Based Automated Testing Suite (`Hypothesis`)**: Added property-based invariant testing (`tests/test_property_based.py`) testing whole-pack quantization, safety stock preservation, and extreme demand surge resilience ($10^6$ units) under randomized input distributions.
 
 ---
 
-## ⚡ 45% Prototype Features (Review 1 Scope)
-- **Dataset Generator**: Reproducible synthetic dataset generator (`data_generator.py`) for 10 components and 5 locations.
+## ⚡ Review 2 Features & System Architecture
+- **SQLite Database & SQLAlchemy ORM**: Relational schema models (`Component`, `Location`, `Inventory`, `Forecast`, `TransferRoute`, `OverrideLog`, `ValidationCase`).
+- **Dataset Generator & Database Seeder**: Generates synthetic supply chain records and seeds SQLite database `data/inventory.db`.
 - **Data Validation Engine**: Checks for missing values, negative inventory, invalid pack sizes, and missing routes.
 - **Shortage & Surplus Calculation**: Formulates available stock, projected stock, shortage quantity, and usable surplus.
 - **Variable Pack-Size Handling**: Adjusts shortage quantities to complete pack integer multiples ($Q = \lceil S / P \rceil \times P$).
 - **Transfer Feasibility Engine**: Evaluates source surplus, safety stock preservation, and service urgency lead-time rules.
-- **Explainable Decision-Support Score**: Ranks candidate sources using $0.5 \times \text{service} + 0.3 \times \text{cost} + 0.2 \times \text{reliability}$.
+- **Multi-Criteria Decision Score**: Ranks candidate sources using $0.4\times\text{Service} + 0.3\times\text{Cost} + 0.15\times\text{Emissions} + 0.15\times\text{Reliability}$.
 - **Uncertainty & Confidence Communicator**: Displays forecast uncertainty intervals and assigns HIGH/MEDIUM/LOW confidence ratings.
-- **Baseline Comparison & Metrics**: Computes purchase cost avoided and shortages avoided against the purchase-all baseline.
+- **Baseline Comparison & Metrics**: Computes purchase cost avoided (₹ INR) and CO2 emissions avoided (kg) against the purchase-all baseline.
 - **Four Core Edge Cases**: Demonstrates Edge Cases 1-4 with explicit status messages and rejection evidence.
-- **Human Approval & Override Audit Log**: Enables planners to approve, reject, or override recommendations with mandatory reason logging saved to `data/override_log.csv`.
-- **Interactive Flask Dashboard**: Modern, glassmorphism dashboard with 3 primary Chart.js visualizations.
-- **Automated Pytest Suite**: Full automated testing in `tests/test_recommender.py`.
+- **ACID Transactional Stock Reallocation**: Approving a transfer recommendation atomically decrements source available stock and increments destination stock in SQLite.
+- **Interactive Flask Dashboard**: Modern, glassmorphism dashboard with 7 summary metric cards and 3 primary Chart.js visualizations.
+- **Automated Pytest & Hypothesis Test Suite**: Full coverage across unit tests and property-based invariant tests.
 
 ---
 
 ## 🛠️ Technology Stack
-- **Backend**: Python 3, Flask
-- **Data Processing**: Pandas, NumPy, CSV
+- **Backend**: Python 3, Flask, SQLAlchemy 2.0 ORM, SQLite3
+- **Data Processing**: Pandas, NumPy
 - **Frontend**: HTML5, CSS3 (Vanilla CSS with CSS Variables & Glassmorphism), JavaScript (ES6)
 - **Visualizations**: Chart.js (via CDN)
-- **Testing**: Pytest
+- **Testing**: Pytest, Hypothesis (Property-Based Testing)
 
 ---
 
@@ -50,6 +47,7 @@ To develop a simple, explainable, rule-based decision-support system that:
 inventory-balancing-recommender/
 ├── app.py
 ├── recommender.py
+├── database.py
 ├── data_generator.py
 ├── metrics.py
 ├── requirements.txt
@@ -57,6 +55,7 @@ inventory-balancing-recommender/
 ├── .gitignore
 │
 ├── data/
+│   ├── inventory.db
 │   ├── components.csv
 │   ├── locations.csv
 │   ├── inventory.csv
@@ -75,7 +74,8 @@ inventory-balancing-recommender/
 │   └── script.js
 │
 ├── tests/
-│   └── test_recommender.py
+│   ├── test_recommender.py
+│   └── test_property_based.py
 │
 └── docs/
     ├── requirements.md
@@ -88,35 +88,6 @@ inventory-balancing-recommender/
 
 ---
 
-## 🧮 Algorithm & Formulas
-
-### 1. Shortage & Surplus Detection
-$$\text{Available Stock} = \text{Current Stock} - \text{Reserved Stock}$$
-$$\text{Projected Stock} = \text{Available Stock} - \text{Forecast}_{7\text{d}}$$
-$$\text{Shortage} = \max(0, \text{Safety Stock} - \text{Projected Stock})$$
-$$\text{Usable Surplus} = \max(0, \text{Available Stock} - \text{Safety Stock})$$
-
-### 2. Variable Pack-Size Adjustment
-$$\text{Packs Required } N = \left\lceil \frac{\text{Shortage}}{\text{Pack Size}} \right\rceil$$
-$$\text{Recommended Quantity } Q = N \times \text{Pack Size}$$
-
-### 3. Decision-Support Score
-$$\text{Score} = 0.5 \times \left(1.0 - \frac{\text{Lead Time}}{\text{Max Urgency Days}}\right) + 0.3 \times \left(1.0 - \frac{\text{Transfer Cost Unit}}{\text{Unit Cost}}\right) + 0.2 \times \text{Reliability}$$
-
----
-
-## 📊 Baseline Comparison
-- **Baseline Strategy**: If shortage exists $\rightarrow$ Purchase full shortage from external supplier.
-- **Recommender Strategy**: Transfer internal surplus first $\rightarrow$ Direct supplier purchase only if internal surplus is unavailable.
-- **Key Metrics Tracked**:
-  - Baseline Purchase Cost
-  - Recommender Purchase Cost
-  - Recommender Transfer Cost
-  - Purchase Avoided ($= \text{Baseline Purchase} - \text{Recommender Purchase}$)
-  - Shortages Avoided ($= \text{Shortages resolved via transfer}$)
-
----
-
 ## 🚀 How to Run the Project
 
 ### 1. Install Dependencies
@@ -124,14 +95,15 @@ $$\text{Score} = 0.5 \times \left(1.0 - \frac{\text{Lead Time}}{\text{Max Urgenc
 pip install -r requirements.txt
 ```
 
-### 2. Generate Dataset
+### 2. Generate Datasets & Seed SQLite Database
 ```bash
 python data_generator.py
 ```
 
-### 3. Run Automated Tests
+### 3. Run Unit Tests & Property-Based Tests
 ```bash
-pytest tests/test_recommender.py
+python -m pytest tests/test_recommender.py -v
+python -m pytest tests/test_property_based.py -v
 ```
 
 ### 4. Execute Validation Experiment
@@ -144,31 +116,3 @@ python metrics.py
 python app.py
 ```
 Open your browser and navigate to: `http://127.0.0.1:5000/`
-
----
-
-## 🧪 Testing & Edge Cases
-The test suite in `tests/test_recommender.py` verifies:
-1. Shortage calculation correctness.
-2. Surplus calculation correctness.
-3. Variable pack-size rounding logic.
-4. Safety stock protection at source locations.
-5. Transfer lead-time rejection against service urgency deadlines.
-6. No-surplus supplier purchase fallback.
-
----
-
-## 📝 Limitations (Review 1 Scope Boundary)
-- Uses python-generated synthetic supply chain datasets (`data_generator.py`).
-- Persistent storage handled via Pandas CSV files without external database servers.
-- Static transport matrices without live logistics API streaming.
-- Rule-based decision-support recommendations rather than stochastic optimization models.
-
----
-
-## 🔮 Future Work (Post-Review 1)
-- **55%+**: Advanced demand forecasting (ARIMA / Prophet integration).
-- **65%+**: Multi-echelon linear optimization (MILP solvers).
-- **75%+**: Live streaming data pipelines & WebSockets.
-- **85%+**: Enterprise ERP REST API connectors (SAP / NetSuite).
-- **100%**: Production cloud deployment & OAuth2 security.

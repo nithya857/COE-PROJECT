@@ -9,7 +9,7 @@ async function loadDashboardData() {
         const response = await fetch('/api/dashboard');
         const data = await response.json();
         
-        // Populate Summary Cards directly from canonical validation experiment summary
+        // Populate Summary Cards directly from canonical validation summary
         document.getElementById('stat-components').innerText = data.summary.total_components;
         document.getElementById('stat-locations').innerText = data.summary.total_locations;
         document.getElementById('stat-shortages').innerText = data.summary.active_shortages;
@@ -17,6 +17,10 @@ async function loadDashboardData() {
         document.getElementById('stat-purchase-avoided').innerText = '₹' + data.summary.purchase_avoided.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
         document.getElementById('stat-shortages-avoided').innerText = data.summary.shortages_avoided + ' cases';
         
+        if (document.getElementById('stat-emissions-avoided')) {
+            document.getElementById('stat-emissions-avoided').innerText = data.summary.emissions_avoided_kg.toLocaleString('en-IN', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + ' kg';
+        }
+
         document.getElementById('shortage-count-badge').innerText = `${data.summary.active_shortages} Shortage Cases Detected`;
         
         // Render Warnings if present
@@ -34,7 +38,7 @@ async function loadDashboardData() {
         // Render Shortage Table
         renderShortageTable(data.shortages);
 
-        // Render ONLY 3 Charts using canonical validation cost & case numbers
+        // Render 3 Visualizations using canonical validation data
         renderChart1CostComparison(data.summary.baseline_purchase, data.summary.recommender_purchase);
         renderChart2ShortagesAvoided(data.summary.shortages_avoided, data.summary.purchase_recommendations);
         renderChart3CostBreakdown(data.summary.recommender_transfer, data.summary.recommender_purchase);
@@ -128,7 +132,7 @@ function renderChart2ShortagesAvoided(avoidedCases, purchaseFallbacks) {
     });
 }
 
-// Chart 3: Transfer Freight Cost vs Supplier Purchase Cost
+// Chart 3: Inter-Location Freight Cost vs Direct Supplier Purchase Cost
 function renderChart3CostBreakdown(transferCost, purchaseCost) {
     const ctx = document.getElementById('chartCostBreakdown').getContext('2d');
     if (chartCostBreakdown) chartCostBreakdown.destroy();
@@ -223,6 +227,9 @@ function renderRecommendationsTable(recs) {
                             r.status === 'REJECTED' ? 'badge-danger' :
                             r.status === 'OVERRIDDEN' ? 'badge-warning' : 'badge-primary';
                             
+        const modeBadge = r.transport_mode === 'EV_TRUCK' ? 'badge-success' :
+                          r.transport_mode === 'DIESEL_TRUCK' ? 'badge-info' : 'badge-warning';
+
         return `
             <tr style="cursor: pointer;" onclick="window.location.href='/recommendation/${r.recommendation_id}'">
                 <td><strong>${r.recommendation_id}</strong></td>
@@ -230,7 +237,7 @@ function renderRecommendationsTable(recs) {
                 <td><strong>${r.source}</strong> → <strong>${r.destination}</strong></td>
                 <td>${r.recommended_quantity} units</td>
                 <td>${r.num_packs} packs (${r.pack_size}/pack)</td>
-                <td>${r.transfer_time_days} days</td>
+                <td>${r.transfer_time_days} days (${r.distance_km} km)</td>
                 <td>₹${r.transfer_cost.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
                 <td>${r.decision_score > 0 ? r.decision_score : 'N/A'}</td>
                 <td><span class="badge ${r.confidence === 'HIGH' ? 'badge-success' : r.confidence === 'MEDIUM' ? 'badge-info' : 'badge-warning'}">${r.confidence}</span></td>
@@ -272,6 +279,9 @@ async function loadSingleRecommendationDetails(recId) {
                             r.status === 'REJECTED' ? 'badge-danger' :
                             r.status === 'OVERRIDDEN' ? 'badge-warning' : 'badge-primary';
 
+        const modeBadge = r.transport_mode === 'EV_TRUCK' ? 'badge-success' :
+                          r.transport_mode === 'DIESEL_TRUCK' ? 'badge-info' : 'badge-warning';
+
         container.innerHTML = `
             <div class="detail-header-grid">
                 <!-- Primary Information -->
@@ -304,6 +314,18 @@ async function loadSingleRecommendationDetails(recId) {
                     <div class="callout-box">
                         <strong>📦 Variable Pack-Size Adjustment:</strong>
                         <p style="margin-top: 0.25rem;">${r.pack_adjustment_note}</p>
+                    </div>
+
+                    <!-- Sustainability & Carbon Emissions Callout -->
+                    <div class="callout-box" style="border-left-color: var(--accent-green); background: rgba(52, 211, 153, 0.08);">
+                        <strong>🌿 Dynamic Carbon Footprint (Distance & Transport Mode):</strong>
+                        <p style="margin-top: 0.25rem;">
+                            Transport Mode: <span class="badge ${modeBadge}">${r.transport_mode}</span> (${r.distance_km} km)
+                            <br>
+                            Transfer Emissions: <strong>${r.transfer_emissions_kg} kg CO2</strong> vs Baseline Procurement: <strong>${r.baseline_emissions_kg} kg CO2</strong>
+                            <br>
+                            Carbon Footprint Saved: <strong style="color: var(--accent-green);">${r.emissions_avoided_kg} kg CO2</strong>
+                        </p>
                     </div>
 
                     <!-- WHY THIS RECOMMENDATION? Evidence Section -->
@@ -358,7 +380,7 @@ async function loadSingleRecommendationDetails(recId) {
 
                     <!-- Human Approval Buttons -->
                     <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
-                        <span class="metric-label" style="display: block; margin-bottom: 0.5rem;">Human Approval Action:</span>
+                        <span class="metric-label" style="display: block; margin-bottom: 0.5rem;">Transactional Approval Action (SQLite ACID):</span>
                         <div style="display: flex; gap: 0.5rem;">
                             <button class="btn btn-success" style="flex: 1;" onclick="handleApprove('${r.recommendation_id}')">Approve</button>
                             <button class="btn btn-danger" style="flex: 1;" onclick="handleReject('${r.recommendation_id}')">Reject</button>
@@ -398,9 +420,9 @@ async function loadSingleRecommendationDetails(recId) {
     }
 }
 
-// Approval Actions
+// Approval Actions with Transactional ACID Notification
 async function handleApprove(recId) {
-    if (!confirm(`Approve recommendation ${recId}?`)) return;
+    if (!confirm(`Execute transactional stock allocation for recommendation ${recId}?`)) return;
     try {
         const response = await fetch(`/api/recommendation/${recId}/approve`, { method: 'POST' });
         const res = await response.json();

@@ -1,10 +1,18 @@
-# Architecture Specification: System Data Flow
+# Architecture Specification: System Data Flow (Review 2 Release)
 
 ```
 +-------------------------------------------------------------+
-|                      CSV DATA FILES                         |
-|  components.csv | locations.csv | inventory.csv             |
-|  forecast.csv   | transfers.csv                             |
+|               SQLITE RELATIONAL DATABASE                    |
+|                   data/inventory.db                         |
+|  Components | Locations | Inventory | Forecasts             |
+|  TransferRoutes | OverrideLogs | ValidationCases            |
++-------------------------------------------------------------+
+                               |
+                               v
++-------------------------------------------------------------+
+|                     SQLALCHEMY 2.0 ORM                      |
+|  - Object Relational Mapping & Thread-Safe Scoped Session   |
+|  - ACID Transactional Stock Allocation (database.py)        |
 +-------------------------------------------------------------+
                                |
                                v
@@ -33,24 +41,24 @@
                                v
 +-------------------------------------------------------------+
 |              VARIABLE PACK-SIZE & FEASIBILITY               |
-|  - Whole Pack Rounding (Q = ceil(S/P)*P)                    |
-|  - Source Safety Stock Protection                           |
-|  - Service Urgency Lead-Time Check                          |
+|  - Whole Pack Quantization (Q = ceil(S/P)*P)                |
+|  - Source Safety Stock Protection Guard                     |
+|  - Service Urgency Lead-Time & SLA Check                    |
 +-------------------------------------------------------------+
                                |
                                v
 +-------------------------------------------------------------+
-|                 RECOMMENDATION & SCORING                    |
-|  - Rule 1: No Surplus -> Direct Supplier Purchase           |
-|  - Rule 2: Feasible Surplus -> Inter-Location Transfer      |
-|  - Score = 0.5*Service + 0.3*Cost + 0.2*Reliability          |
+|            DYNAMIC CARBON EMISSIONS & SCORING               |
+|  - CO2 (kg) = Distance * Weight (Tons) * Vehicle Emission   |
+|  - Vehicle Modes: EV_TRUCK, DIESEL_TRUCK, EXPRESS_AIR       |
+|  - Score = 0.4*Service + 0.3*Cost + 0.15*CO2 + 0.15*Rel     |
 +-------------------------------------------------------------+
                                |
                                v
 +-------------------------------------------------------------+
 |                UNCERTAINTY & HUMAN APPROVAL                 |
 |  - Forecast Uncertainty Interval calculation                 |
-|  - High Criticality / Qty > 200 / Low Conf Flagging        |
+|  - Transactional Approval Action (SQLite Stock Allocation)  |
 +-------------------------------------------------------------+
                                |
                +---------------+---------------+
@@ -58,17 +66,17 @@
                v                               v
 +-----------------------------+ +-----------------------------+
 |       FLASK REST API        | |     INTERACTIVE DASHBOARD   |
-|  /api/dashboard             | |  Summary Metrics Cards      |
+|  /api/dashboard             | |  7 Metric Summary Cards     |
 |  /api/recommendations       | |  3 Chart.js Visualizations  |
 |  /api/recommendation/approve| |  Shortage & Rec Tables      |
-|  /api/recommendation/override | |  Override Reason Modal     |
+|  /api/recommendation/override | |  ACID Stock Reallocation   |
 +-----------------------------+ +-----------------------------+
                                |
                                v
 +-------------------------------------------------------------+
-|                     VALIDATION & METRICS                    |
-|  - Baseline Purchase vs Recommender Cost Comparison         |
-|  - Purchase Avoided & Shortages Avoided calculations        |
-|  - Output: data/validation_cases.csv                        |
+|            HYPOTHESIS PROPERTY-BASED TESTING                |
+|  - Whole-Pack Quantization Invariants (Q >= S, Q % P == 0)  |
+|  - Safety Stock Preservation Invariant                      |
+|  - 10^6 Extreme Demand Surge Resilience                     |
 +-------------------------------------------------------------+
 ```

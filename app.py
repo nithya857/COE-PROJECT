@@ -2,24 +2,27 @@ import os
 import datetime
 import pandas as pd
 from flask import Flask, render_template, jsonify, request, redirect, url_for
-from recommender import generate_recommendations, calculate_inventory_metrics, validate_data
+from database import (
+    db_session, execute_transfer_transaction,
+    OverrideLog, Inventory, Component, Location
+)
+from recommender import (
+    load_data_from_db, generate_recommendations,
+    calculate_inventory_metrics, validate_data
+)
 from metrics import run_validation_experiment
 
 app = Flask(__name__)
 
-# Cache / In-memory storage for interactive session state
+# Cache / In-memory storage for interactive session state overrides
 session_overrides = {}
 
-def load_all_datasets():
-    df_components = pd.read_csv('data/components.csv')
-    df_locations = pd.read_csv('data/locations.csv')
-    df_inventory = pd.read_csv('data/inventory.csv')
-    df_forecast = pd.read_csv('data/forecast.csv')
-    df_transfers = pd.read_csv('data/transfers.csv')
-    return df_components, df_locations, df_inventory, df_forecast, df_transfers
+@app.teardown_appcontext
+def shutdown_session(exception=None):
+    db_session.remove()
 
 def get_current_recommendations():
-    df_c, df_l, df_i, df_f, df_t = load_all_datasets()
+    df_c, df_l, df_i, df_f, df_t = load_data_from_db()
     recs = generate_recommendations(df_i, df_f, df_c, df_l, df_t)
     
     # Merge session state / override log
@@ -44,7 +47,7 @@ def details_page(rec_id):
 
 @app.route('/api/dashboard')
 def api_dashboard():
-    df_c, df_l, df_i, df_f, df_t = load_all_datasets()
+    df_c, df_l, df_i, df_f, df_t = load_data_from_db()
     warnings = validate_data(df_c, df_l, df_i, df_f, df_t)
     metrics_df = calculate_inventory_metrics(df_i, df_f, df_c)
     
@@ -55,7 +58,6 @@ def api_dashboard():
     shortages_table = metrics_df[metrics_df['has_shortage']].copy()
     shortage_list = []
     for _, r in shortages_table.iterrows():
-        # Match with confidence rating
         rec_match = next((item for item in recs if item['component_id'] == str(r['component_id']) and item['destination'] == str(r['location'])), None)
         conf = rec_match['confidence'] if rec_match else "MEDIUM"
         
@@ -85,7 +87,10 @@ def api_dashboard():
             "recommender_total_cost": summary['total_recommender_cost'],
             "purchase_avoided": summary['purchase_avoided'],
             "net_financial_savings": summary['net_financial_savings'],
-            "shortages_avoided": summary['shortages_avoided']
+            "shortages_avoided": summary['shortages_avoided'],
+            "baseline_emissions_kg": summary['total_baseline_emissions_kg'],
+            "recommender_emissions_kg": summary['total_recommender_emissions_kg'],
+            "emissions_avoided_kg": summary['total_emissions_avoided_kg']
         },
         "warnings": warnings,
         "shortages": shortage_list
@@ -106,7 +111,26 @@ def api_single_recommendation(rec_id):
 
 @app.route('/api/recommendation/<rec_id>/approve', methods=['POST'])
 def approve_recommendation(rec_id):
-    session_overrides[rec_id] = {"status": "APPROVED", "reason": "Approved by Supply Chain Planner"}
+    recs = get_current_recommendations()
+    match = next((r for r in recs if r['recommendation_id'] == rec_id), None)
+    
+    if match and match['type'] == 'TRANSFER':
+        # Execute ACID transactional inventory allocation in SQLite database
+        success, msg = execute_transfer_transaction(
+            rec_id=rec_id,
+            source_loc=match['source'],
+            dest_loc=match['destination'],
+            comp_id=match['component_id'],
+            batch=match['batch'],
+            quantity=match['recommended_quantity']
+        )
+        if success:
+            session_overrides[rec_id] = {"status": "APPROVED", "reason": msg}
+            return jsonify({"status": "success", "message": f"Recommendation {rec_id} approved. {msg}"})
+        else:
+            return jsonify({"status": "error", "message": f"Transaction failed: {msg}"}), 400
+            
+    session_overrides[rec_id] = {"status": "APPROVED", "reason": "Approved Supplier Procurement"}
     return jsonify({"status": "success", "message": f"Recommendation {rec_id} approved."})
 
 @app.route('/api/recommendation/<rec_id>/reject', methods=['POST'])
@@ -121,7 +145,6 @@ def override_recommendation(rec_id):
     
     session_overrides[rec_id] = {"status": "OVERRIDDEN", "reason": reason}
     
-    # Save to data/override_log.csv
     log_entry = {
         "recommendation_id": rec_id,
         "decision": "OVERRIDE",
@@ -137,8 +160,7 @@ def override_recommendation(rec_id):
     return jsonify({"status": "success", "message": f"Recommendation {rec_id} overridden.", "log": log_entry})
 
 if __name__ == '__main__':
-    # Ensure datasets exist before running
-    if not os.path.exists('data/components.csv'):
+    if not os.path.exists('data/inventory.db'):
         from data_generator import generate_datasets
         generate_datasets()
     app.run(host='127.0.0.1', port=5000, debug=True)

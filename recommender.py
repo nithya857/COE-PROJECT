@@ -1,6 +1,9 @@
 import math
 import pandas as pd
 import numpy as np
+from database import (
+    SessionLocal, Component, Location, Inventory, Forecast, TransferRoute
+)
 
 URGENCY_MAX_DAYS = {
     "CRITICAL": 1,
@@ -8,6 +11,46 @@ URGENCY_MAX_DAYS = {
     "MEDIUM": 7,
     "LOW": 14
 }
+
+# Vehicle emission rates in kg CO2 per ton-km
+VEHICLE_EMISSION_RATES = {
+    "EV_TRUCK": 0.05,
+    "DIESEL_TRUCK": 0.18,
+    "EXPRESS_AIR": 0.95
+}
+
+def load_data_from_db(session=None):
+    """
+    Loads components, locations, inventory, forecast, and transfer routes from SQLite DB via SQLAlchemy ORM.
+    Returns Pandas DataFrames for consistent processing.
+    """
+    close_session = False
+    if session is None:
+        session = SessionLocal()
+        close_session = True
+        
+    try:
+        components = [c.__dict__ for c in session.query(Component).all()]
+        locations = [l.__dict__ for l in session.query(Location).all()]
+        inventory = [i.__dict__ for i in session.query(Inventory).all()]
+        forecasts = [f.__dict__ for f in session.query(Forecast).all()]
+        routes = [r.__dict__ for r in session.query(TransferRoute).all()]
+
+        # Clean SQLAlchemy internal state key _sa_instance_state
+        for lst in [components, locations, inventory, forecasts, routes]:
+            for item in lst:
+                item.pop('_sa_instance_state', None)
+
+        df_components = pd.DataFrame(components)
+        df_locations = pd.DataFrame(locations)
+        df_inventory = pd.DataFrame(inventory)
+        df_forecast = pd.DataFrame(forecasts)
+        df_transfers = pd.DataFrame(routes)
+
+        return df_components, df_locations, df_inventory, df_forecast, df_transfers
+    finally:
+        if close_session:
+            session.close()
 
 def validate_data(df_components, df_locations, df_inventory, df_forecast, df_transfers):
     """
@@ -42,21 +85,14 @@ def calculate_inventory_metrics(df_inventory, df_forecast, df_components):
     """
     Combines inventory, forecast, and component data to compute projected stock, shortage, and usable surplus.
     """
-    # Merge datasets
     merged = pd.merge(df_inventory, df_forecast, on=['component_id', 'location', 'batch'], how='inner')
     merged = pd.merge(merged, df_components, on='component_id', how='inner')
     
-    # Calculate available stock
     merged['available_stock'] = merged['current_stock'] - merged['reserved_stock']
-    
-    # Calculate projected stock (available_stock - forecast_7_days)
     merged['projected_stock'] = merged['available_stock'] - merged['forecast_7_days']
-    
-    # Calculate shortage = max(0, safety_stock - projected_stock)
     merged['shortage'] = merged.apply(lambda r: max(0, r['safety_stock'] - r['projected_stock']), axis=1)
     merged['has_shortage'] = merged['shortage'] > 0
     
-    # Calculate usable surplus = max(0, available_stock - safety_stock)
     merged['usable_surplus'] = merged.apply(lambda r: max(0, r['available_stock'] - r['safety_stock']), axis=1)
     merged['has_surplus'] = merged['usable_surplus'] > 0
     
@@ -73,7 +109,6 @@ def calculate_pack_size_adjustment(shortage_qty, pack_size, available_surplus=No
     recommended_qty = num_packs * pack_size
     
     if available_surplus is not None and available_surplus < recommended_qty:
-        # Bounded by source surplus
         max_packs = math.floor(available_surplus / pack_size)
         if max_packs > 0:
             recommended_qty = max_packs * pack_size
@@ -87,16 +122,27 @@ def calculate_pack_size_adjustment(shortage_qty, pack_size, available_surplus=No
         
     return recommended_qty, num_packs, adjustment_note
 
+def calculate_dynamic_emissions(distance_km, transport_mode, quantity, unit_weight_kg):
+    """
+    Calculates dynamic carbon emissions (kg CO2) for transport route.
+    Formula: CO2 (kg) = (distance_km * quantity * unit_weight_kg / 1000) * vehicle_emission_rate
+    """
+    rate = VEHICLE_EMISSION_RATES.get(transport_mode, 0.18)
+    weight_tons = (quantity * unit_weight_kg) / 1000.0
+    emissions_kg = distance_km * weight_tons * rate
+    return round(emissions_kg, 2)
+
 def evaluate_transfer_feasibility(dest_row, candidate_sources, df_transfers, df_components):
     """
     Evaluates candidate source locations for a destination shortage.
-    Checks surplus availability, safety stock preservation, urgency deadline, and pack-size rules.
+    Checks surplus availability, safety stock preservation, urgency deadline, pack-size rules, and CO2 emissions.
     """
     comp_id = dest_row['component_id']
     dest_loc = dest_row['location']
     shortage = dest_row['shortage']
     urgency = dest_row['urgency']
     pack_size = dest_row['pack_size']
+    unit_weight_kg = dest_row.get('unit_weight_kg', 1.5)
     max_urgency_days = URGENCY_MAX_DAYS.get(urgency, 14)
     
     feasible_candidates = []
@@ -109,23 +155,25 @@ def evaluate_transfer_feasibility(dest_row, candidate_sources, df_transfers, df_
             
         usable_surplus = src_row['usable_surplus']
         
-        # Look up transfer route
         route = df_transfers[(df_transfers['source'] == src_loc) & (df_transfers['destination'] == dest_loc)]
         if route.empty:
             rejected_candidates.append({
-                "source": src_loc,
+                "source": str(src_loc),
                 "reason": f"No active transfer route configured from {src_loc} to {dest_loc}."
             })
             continue
             
-        transfer_time = route.iloc[0]['transfer_time_days']
-        transfer_cost_unit = route.iloc[0]['transfer_cost_per_unit']
-        reliability = route.iloc[0]['reliability']
+        route_row = route.iloc[0]
+        transfer_time = route_row['transfer_time_days']
+        transfer_cost_unit = route_row['transfer_cost_per_unit']
+        distance_km = route_row.get('distance_km', 500.0)
+        transport_mode = route_row.get('transport_mode', 'DIESEL_TRUCK')
+        reliability = route_row['reliability']
         
         # Rule 1: Surplus >= 1 pack
         if usable_surplus < pack_size:
             rejected_candidates.append({
-                "source": src_loc,
+                "source": str(src_loc),
                 "reason": f"Source usable surplus ({usable_surplus} units) is less than one complete pack ({pack_size} units)."
             })
             continue
@@ -133,37 +181,46 @@ def evaluate_transfer_feasibility(dest_row, candidate_sources, df_transfers, df_
         # Rule 2: Service Urgency Check
         if transfer_time > max_urgency_days:
             rejected_candidates.append({
-                "source": src_loc,
+                "source": str(src_loc),
                 "reason": f"Transfer time ({transfer_time} days) exceeds service urgency threshold ({max_urgency_days} days for {urgency} urgency)."
             })
             continue
             
-        # Rule 3: Calculate pack adjustment
+        # Rule 3: Pack-Size Adjustment
         rec_qty, num_packs, pack_note = calculate_pack_size_adjustment(shortage, pack_size, usable_surplus)
         if rec_qty <= 0:
             rejected_candidates.append({
-                "source": src_loc,
+                "source": str(src_loc),
                 "reason": pack_note
             })
             continue
             
-        # Rule 4: Safety Stock Protection Check at Source
+        # Rule 4: Safety Stock Protection Check
         post_transfer_stock = src_row['available_stock'] - rec_qty
         if post_transfer_stock < src_row['safety_stock']:
             rejected_candidates.append({
-                "source": src_loc,
+                "source": str(src_loc),
                 "reason": f"Transfer of {rec_qty} units would reduce source stock below safety stock threshold ({src_row['safety_stock']} units)."
             })
             continue
 
-        # Decision Support Score Calculation
+        # Dynamic CO2 Emissions Calculations
+        transfer_emissions_kg = calculate_dynamic_emissions(distance_km, transport_mode, rec_qty, unit_weight_kg)
+        
+        # Baseline Supplier Procurement Transport Emissions (assumed 800 km via DIESEL_TRUCK)
+        baseline_emissions_kg = calculate_dynamic_emissions(800.0, "DIESEL_TRUCK", rec_qty, unit_weight_kg)
+        emissions_avoided_kg = round(max(0.0, baseline_emissions_kg - transfer_emissions_kg), 2)
+
+        # Multi-Criteria Explainable Decision-Support Score Formulation
         unit_cost = dest_row['unit_cost']
         service_score = max(0.0, 1.0 - (transfer_time / max_urgency_days))
         cost_score = max(0.0, 1.0 - (transfer_cost_unit / unit_cost)) if unit_cost > 0 else 0.5
+        emissions_score = max(0.0, 1.0 - (transfer_emissions_kg / max(1.0, baseline_emissions_kg)))
         reliability_score = float(reliability)
         
-        # Weighted Decision-Support Score
-        score = round(0.5 * service_score + 0.3 * cost_score + 0.2 * reliability_score, 3)
+        # Weighted Decision-Support Score with Sustainability Impact:
+        # 0.40 * Service + 0.30 * Cost + 0.15 * Emissions + 0.15 * Reliability
+        score = round(0.40 * service_score + 0.30 * cost_score + 0.15 * emissions_score + 0.15 * reliability_score, 3)
 
         feasible_candidates.append({
             "source": str(src_loc),
@@ -173,6 +230,11 @@ def evaluate_transfer_feasibility(dest_row, candidate_sources, df_transfers, df_
             "transfer_time_days": int(transfer_time),
             "transfer_cost_per_unit": float(transfer_cost_unit),
             "transfer_cost": float(rec_qty * transfer_cost_unit),
+            "distance_km": float(distance_km),
+            "transport_mode": str(transport_mode),
+            "transfer_emissions_kg": float(transfer_emissions_kg),
+            "baseline_emissions_kg": float(baseline_emissions_kg),
+            "emissions_avoided_kg": float(emissions_avoided_kg),
             "reliability": float(reliability),
             "score": float(score),
             "pack_note": str(pack_note),
@@ -192,13 +254,11 @@ def calculate_uncertainty_and_confidence(dest_row, selected_candidate=None):
     range_max = round(forecast * (1.0 + unc_pct / 100.0), 1)
     
     if selected_candidate is None:
-        # Purchase recommendation or no feasible transfer
         if unc_pct > 20.0:
             confidence = "LOW"
         else:
             confidence = "MEDIUM"
     else:
-        # Transfer recommendation
         surplus = selected_candidate['usable_surplus']
         req_qty = selected_candidate['recommended_qty']
         
@@ -220,11 +280,14 @@ def calculate_uncertainty_and_confidence(dest_row, selected_candidate=None):
         "disclaimer": disclaimer
     }
 
-def generate_recommendations(df_inventory, df_forecast, df_components, df_locations, df_transfers):
+def generate_recommendations(df_inventory=None, df_forecast=None, df_components=None, df_locations=None, df_transfers=None, db_session=None):
     """
-    Runs the full recommendation engine over all components and locations.
+    Runs the recommendation engine querying database or passed DataFrames.
     Returns a list of detailed recommendation dictionary objects.
     """
+    if df_inventory is None or df_forecast is None or df_components is None or df_locations is None or df_transfers is None:
+        df_components, df_locations, df_inventory, df_forecast, df_transfers = load_data_from_db(db_session)
+
     processed = calculate_inventory_metrics(df_inventory, df_forecast, df_components)
     shortages = processed[processed['has_shortage']].copy()
     
@@ -238,10 +301,10 @@ def generate_recommendations(df_inventory, df_forecast, df_components, df_locati
         batch = str(dest_row['batch'])
         shortage_qty = int(dest_row['shortage'])
         unit_cost = float(dest_row['unit_cost'])
+        unit_weight_kg = float(dest_row.get('unit_weight_kg', 1.5))
         pack_size = int(dest_row['pack_size'])
         criticality = str(dest_row['criticality'])
         
-        # Find candidate source locations for same component & batch with usable surplus > 0
         candidate_sources = processed[
             (processed['component_id'] == comp_id) & 
             (processed['batch'] == batch) & 
@@ -254,15 +317,19 @@ def generate_recommendations(df_inventory, df_forecast, df_components, df_locati
         rec_counter += 1
         
         if len(feasible) == 0:
-            # RULE 1: Purchase Recommendation (No feasible transfer source)
+            # RULE 1: Direct Supplier Purchase Recommendation
             req_packs = int(math.ceil(shortage_qty / pack_size))
             rec_qty = int(req_packs * pack_size)
             purchase_cost = float(rec_qty * unit_cost)
             transfer_cost = 0.0
             
+            # Baseline emissions for procurement transport (800 km DIESEL_TRUCK)
+            baseline_emissions_kg = calculate_dynamic_emissions(800.0, "DIESEL_TRUCK", rec_qty, unit_weight_kg)
+            transfer_emissions_kg = baseline_emissions_kg
+            emissions_avoided_kg = 0.0
+
             unc_info = calculate_uncertainty_and_confidence(dest_row, None)
             
-            # Edge Case Reason Classification
             if len(candidate_sources) == 0:
                 edge_case = "Edge Case 1: No surplus available in network"
                 primary_reason = "No location in the network has usable surplus for this component."
@@ -288,6 +355,11 @@ def generate_recommendations(df_inventory, df_forecast, df_components, df_locati
                 "transfer_cost": 0.0,
                 "purchase_cost": purchase_cost,
                 "cost_difference": purchase_cost,
+                "distance_km": 800.0,
+                "transport_mode": "SUPPLIER_PROCUREMENT",
+                "transfer_emissions_kg": transfer_emissions_kg,
+                "baseline_emissions_kg": baseline_emissions_kg,
+                "emissions_avoided_kg": 0.0,
                 "decision_score": 0.0,
                 "confidence": unc_info['confidence'],
                 "uncertainty": unc_info,
@@ -305,7 +377,7 @@ def generate_recommendations(df_inventory, df_forecast, df_components, df_locati
             })
             
         else:
-            # RULE 2 & 3: Rank feasible sources and pick best score
+            # RULE 2 & 3: Rank feasible sources by Decision-Support Score
             feasible_sorted = sorted(feasible, key=lambda x: x['score'], reverse=True)
             best_source = feasible_sorted[0]
             
@@ -315,11 +387,14 @@ def generate_recommendations(df_inventory, df_forecast, df_components, df_locati
             purchase_cost = float(rec_qty * unit_cost)
             cost_difference = float(purchase_cost - transfer_cost)
             
+            transfer_emissions_kg = float(best_source['transfer_emissions_kg'])
+            baseline_emissions_kg = float(best_source['baseline_emissions_kg'])
+            emissions_avoided_kg = float(best_source['emissions_avoided_kg'])
+
             unc_info = calculate_uncertainty_and_confidence(dest_row, best_source)
             
             requires_approval = bool((criticality in ['HIGH', 'CRITICAL']) or (rec_qty > 200) or (unc_info['confidence'] == 'LOW'))
             
-            # Edge Case 4 flag: if shortage != recommended quantity
             if shortage_qty != rec_qty:
                 edge_case = "Edge Case 4: Pack-size adjustment applied"
             else:
@@ -341,6 +416,11 @@ def generate_recommendations(df_inventory, df_forecast, df_components, df_locati
                 "transfer_cost": transfer_cost,
                 "purchase_cost": purchase_cost,
                 "cost_difference": cost_difference,
+                "distance_km": float(best_source['distance_km']),
+                "transport_mode": str(best_source['transport_mode']),
+                "transfer_emissions_kg": transfer_emissions_kg,
+                "baseline_emissions_kg": baseline_emissions_kg,
+                "emissions_avoided_kg": emissions_avoided_kg,
                 "decision_score": float(best_source['score']),
                 "confidence": unc_info['confidence'],
                 "uncertainty": unc_info,
@@ -352,8 +432,8 @@ def generate_recommendations(df_inventory, df_forecast, df_components, df_locati
                     f"Source {best_source['source']} has {best_source['usable_surplus']} units usable surplus.",
                     f"Post-transfer source inventory remains safely above safety stock.",
                     f"Pack-size rule satisfied ({num_packs} complete packs of {pack_size}).",
-                    f"Transfer lead time ({best_source['transfer_time_days']} days) satisfies {dest_row['urgency']} service urgency threshold.",
-                    f"Inter-location transfer saves ₹{cost_difference:,.2f} compared to direct supplier purchase."
+                    f"Transfer lead time ({best_source['transfer_time_days']} days via {best_source['transport_mode']}) satisfies {dest_row['urgency']} service urgency threshold.",
+                    f"Inter-location transfer saves ₹{cost_difference:,.2f} and reduces carbon footprint by {emissions_avoided_kg:,.1f} kg CO2."
                 ],
                 "rejected_sources": rejected,
                 "edge_case_flag": edge_case,

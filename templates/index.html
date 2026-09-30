@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inventory Balancing Recommender | Dashboard</title>
+    <title>Inventory Balancing Recommender | Review 2 Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -27,8 +27,8 @@
                 </a>
             </nav>
             <div class="sidebar-footer">
-                <span class="badge badge-primary">45% Prototype</span>
-                <p>CoE Review 1 Demo</p>
+                <span class="badge badge-primary">Review 2 Release</span>
+                <p>SQLite ORM + Dynamic CO2</p>
             </div>
         </aside>
 
@@ -37,7 +37,7 @@
             <header class="header">
                 <div>
                     <h1>Inventory Balancing Recommender</h1>
-                    <p class="subtitle">Multi-Location Balancing Engine for Variable Pack Sizes</p>
+                    <p class="subtitle">Multi-Location Balancing Engine with Variable Pack Sizes & Dynamic CO2 Modeling</p>
                 </div>
                 <div class="header-actions">
                     <button class="btn btn-outline" onclick="loadDashboardData()">🔄 Refresh Data</button>
@@ -48,7 +48,7 @@
             <!-- Warnings Container -->
             <div id="warnings-container"></div>
 
-            <!-- Summary Cards Row -->
+            <!-- Summary Cards Row (7 Metric Cards) -->
             <section class="metrics-grid">
                 <div class="card metric-card">
                     <div class="metric-icon blue">📦</div>
@@ -67,7 +67,7 @@
                 <div class="card metric-card">
                     <div class="metric-icon red">⚠️</div>
                     <div class="metric-info">
-                        <span class="metric-label">Active Shortages</span>
+                        <span class="metric-label">Active Shortage Cases</span>
                         <h3 id="stat-shortages">--</h3>
                     </div>
                 </div>
@@ -92,34 +92,38 @@
                         <h3 id="stat-shortages-avoided">--</h3>
                     </div>
                 </div>
+                <div class="card metric-card">
+                    <div class="metric-icon green" style="background: rgba(16, 185, 129, 0.2); color: #34d399;">🌿</div>
+                    <div class="metric-info">
+                        <span class="metric-label">Carbon Avoided (CO2)</span>
+                        <h3 id="stat-emissions-avoided">-- kg</h3>
+                    </div>
+                </div>
             </section>
 
-            <!-- Charts Section (ONLY 3 Charts) -->
+            <!-- Charts Section (3 Primary Visualizations) -->
             <section class="charts-grid">
-                <!-- Chart 1: Baseline Purchase vs Recommended Purchase -->
                 <div class="card chart-card">
                     <div class="card-header">
-                        <h4>Baseline Purchase vs Recommended Purchase</h4>
+                        <h4>Baseline Purchase Cost vs Recommender Purchase Cost</h4>
                     </div>
                     <div class="chart-container">
                         <canvas id="chartCostComparison"></canvas>
                     </div>
                 </div>
 
-                <!-- Chart 2: Shortages Avoided -->
                 <div class="card chart-card">
                     <div class="card-header">
-                        <h4>Shortages Avoided via Network Transfers</h4>
+                        <h4>Shortage Cases Resolved via Network Transfers</h4>
                     </div>
                     <div class="chart-container">
                         <canvas id="chartShortagesAvoided"></canvas>
                     </div>
                 </div>
 
-                <!-- Chart 3: Transfer Cost vs Purchase Cost -->
                 <div class="card chart-card">
                     <div class="card-header">
-                        <h4>Transfer Cost vs Supplier Purchase Cost</h4>
+                        <h4>Inter-Location Freight Cost vs Direct Supplier Purchase Cost</h4>
                     </div>
                     <div class="chart-container">
                         <canvas id="chartCostBreakdown"></canvas>
@@ -131,7 +135,7 @@
             <section class="card table-card">
                 <div class="card-header">
                     <h4>Active Shortage Monitor</h4>
-                    <span class="badge badge-warning" id="shortage-count-badge">0 Shortages</span>
+                    <span class="badge badge-warning" id="shortage-count-badge">0 Shortage Cases</span>
                 </div>
                 <div class="table-responsive">
                     <table class="data-table">
